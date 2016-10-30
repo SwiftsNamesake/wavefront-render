@@ -1,0 +1,103 @@
+Configuring Cartesian-0.6.0.0...
+Building Cartesian-0.6.0.0...
+Preprocessing library Cartesian-0.6.0.0...
+[1 of 8] Compiling Cartesian.Internal.Utils ( src\Cartesian\Internal\Utils.hs, .stack-work\dist\b7fec021\build\Cartesian\Internal\Utils.o )
+[2 of 8] Compiling Cartesian.Internal.Instances ( src\Cartesian\Internal\Instances.hs, .stack-work\dist\b7fec021\build\Cartesian\Internal\Instances.o )
+[3 of 8] Compiling Cartesian.Internal.Types ( src\Cartesian\Internal\Types.hs, .stack-work\dist\b7fec021\build\Cartesian\Internal\Types.o )
+[4 of 8] Compiling Cartesian.Internal.Lenses ( src\Cartesian\Internal\Lenses.hs, .stack-work\dist\b7fec021\build\Cartesian\Internal\Lenses.o )
+
+src\Cartesian\Internal\Lenses.hs:113:5: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the binding for `as'
+        Consider giving a type signature for `as'
+    * In an equation for `pinned':
+          pinned to f
+            = axes (fmap undo . f . as)
+            where
+                toPinned (pin, (begin', len)) = (begin' + pin * len, len)
+                fromPinned (pin, (begin', len)) = (begin' - pin * len, len)
+                as = fmap toPinned . zipA to
+                undo = fmap fromPinned . zipA to
+
+src\Cartesian\Internal\Lenses.hs:114:5: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the binding for `undo'
+        Consider giving a type signature for `undo'
+    * In an equation for `pinned':
+          pinned to f
+            = axes (fmap undo . f . as)
+            where
+                toPinned (pin, (begin', len)) = (begin' + pin * len, len)
+                fromPinned (pin, (begin', len)) = (begin' - pin * len, len)
+                as = fmap toPinned . zipA to
+                undo = fmap fromPinned . zipA to
+
+src\Cartesian\Internal\Lenses.hs:130:5: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the binding for `newAxes'
+        Consider giving a type signature for `newAxes'
+    * In an equation for `axes':
+          axes f box
+            = uncurry BoundingBox <$> newVecs
+            where
+                newAxes = f $ zipA (box ^. corner) (box ^. size)
+                newVecs = unzipA <$> newAxes
+
+src\Cartesian\Internal\Lenses.hs:131:5: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the binding for `newVecs'
+        Consider giving a type signature for `newVecs'
+    * In an equation for `axes':
+          axes f box
+            = uncurry BoundingBox <$> newVecs
+            where
+                newAxes = f $ zipA (box ^. corner) (box ^. size)
+                newVecs = unzipA <$> newAxes
+[5 of 8] Compiling Cartesian.Lenses ( src\Cartesian\Lenses.hs, .stack-work\dist\b7fec021\build\Cartesian\Lenses.o )
+[6 of 8] Compiling Cartesian.Internal.Core ( src\Cartesian\Internal\Core.hs, .stack-work\dist\b7fec021\build\Cartesian\Internal\Core.o )
+
+src\Cartesian\Internal\Core.hs:62:5: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the bindings for a', b',
+                                                               c', d'
+        Consider giving a type signature for these binders
+    * In an equation for `overlap':
+          overlap (a, b) (c, d)
+            | min (a, b) (c, d) /= (a', b') = Just (b', c')
+            | otherwise = Nothing
+            where
+                [a', b', c', d'] = sort [a, ....]
+
+src\Cartesian\Internal\Core.hs:62:5: warning: [-Wincomplete-uni-patterns]
+    Pattern match(es) are non-exhaustive
+    In a pattern binding:
+        Patterns not matched:
+            []
+            [_]
+            [_, _]
+            [_, _, _]
+            ...
+
+src\Cartesian\Internal\Core.hs:117:22: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the bindings for begin',
+                                                               size'
+        Consider giving a type signature for these binders
+    * In the expression:
+        let (begin', size') = unzipA axes'
+        in BoundingBox {cornerOf = begin', sizeOf = size'}
+      In an equation for `fromAxes':
+          fromAxes axes'
+            = let (begin', size') = unzipA axes'
+              in BoundingBox {cornerOf = begin', sizeOf = size'}
+
+src\Cartesian\Internal\Core.hs:122:28: warning: [-Wmonomorphism-restriction]
+    * The Monomorphism Restriction applies to the bindings for begin',
+                                                               end'
+        Consider giving a type signature for these binders
+    * In the expression:
+        let (begin', end') = unzipA extents'
+        in BoundingBox {cornerOf = begin', sizeOf = liftA2 (-) end' begin'}
+      In an equation for `fromExtents':
+          fromExtents extents'
+            = let (begin', end') = unzipA extents'
+              in BoundingBox {cornerOf = begin', sizeOf = liftA2 (-) end' begin'}
+[7 of 8] Compiling Cartesian.Types  ( src\Cartesian\Types.hs, .stack-work\dist\b7fec021\build\Cartesian\Types.o )
+[8 of 8] Compiling Cartesian.Core   ( src\Cartesian\Core.hs, .stack-work\dist\b7fec021\build\Cartesian\Core.o )
+Installing library in
+C:\Users\Jonatan\Desktop\Haskell\modules\wavefront-render\.stack-work\install\26812796\lib\x86_64-windows-ghc-8.0.1\Cartesian-0.6.0.0-4fTey2HFasTDmC98lzZMfA
+Registering Cartesian-0.6.0.0...
