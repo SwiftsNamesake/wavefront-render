@@ -38,6 +38,8 @@ resolver: lts-7.2
 packages:
   - '.'
   - location: C:/Users/Jonatan/Desktop/Haskell/modules/Leibniz
+  - location: C:/Users/Jonatan/Desktop/Haskell/modules/Cartesian
+  - location: C:/Users/Jonatan/Desktop/Haskell/modules/cubist-sculptor
   - location:
       git: https://github.com/SwiftsNamesake/3DWaves.git
       commit: c763913113f72d3d3549f145b55a58374566a31e
