@@ -42,7 +42,7 @@ packages:
   - location: C:/Users/Jonatan/Desktop/Haskell/modules/cubist-sculptor
   - location:
       git: https://github.com/SwiftsNamesake/3DWaves.git
-      commit: c763913113f72d3d3549f145b55a58374566a31e
+      commit: 959d4acac97c3ef832d9824416964f31ccb24076
   - location:
       git: https://github.com/SwiftsNamesake/GPipe-GLFW.git
       commit: 8f888d3c692c3bf7aad7ed05afc98116ef965747
