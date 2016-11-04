@@ -37,6 +37,7 @@ executable Viewer
                      , text
                      , either
                      , transformers
+                     , containers
                      , filepath
                      , directory
                      , JuicyPixels

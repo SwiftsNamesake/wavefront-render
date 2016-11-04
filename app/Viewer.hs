@@ -48,6 +48,8 @@ import qualified Data.Text   as T
 import           Data.Vector (Vector, (!), (!?))
 import qualified Data.Vector as V
 import qualified Data.Vector.Storable as VS
+import qualified Data.Set as S
+import           Data.Set (Set)
 
 import System.FilePath
 import System.IO (stdout, hFlush)
@@ -82,178 +84,18 @@ import Geometry.Sculptor.Shapes hiding (Face)
 import           Graphics.WaveFront
 import qualified Graphics.WaveFront.Load            as Load
 
-
-
---------------------------------------------------------------------------------------------------------------------------------------------
--- Types
---------------------------------------------------------------------------------------------------------------------------------------------
-
--- |
-type AppFormat = ContextFormat RGBFloat Depth
-type AppT os a = ContextT GLFWWindow os AppFormat IO a
-
-type MeshName = V3 Float
-
-appFormat = ContextFormatColorDepth RGB8 Depth32
-
-
--- TODO: Use less rigid constructors (eg. GADTs)
-
--- |
-data Mesh os p = Mesh {
-  fVertices  :: Buffer os (B4 Float, B2 Float, B3 Float),
-  fPrimitive :: PrimitiveTopology p,
-  fTexture   :: Texture2D os (Format RGBFloat),
-  fMeshName  :: Maybe MeshName
-}
-
-
--- |
-data Entity os p = Entity {
-  fMesh      :: Mesh os p,
-  fBox       :: Mesh os Lines, -- TODO: Move this
-  fTransform :: M44 Float,
-  fTick      :: (Entity os p -> Float -> Entity os p)
-}
-
-
--- |
-data App os p = App {
-  fMatrixUniforms :: Buffer os (Uniform (M44 (B Float))),
-  fScalarUniforms :: Buffer os (Uniform (B  Float)),
-  fVectorUniforms :: Buffer os (Uniform (B3 Float)),
-  
-  fRasterOptions  :: (Side, ViewPort, DepthRange),
-  fWindowSize     :: V2 Float,
-
-  fMatrixValues   :: [M44 Float],
-  fVectorValues   :: [V3 Float],
-  fScalarValues   :: [Float],
-
-  fSilhouettes  :: Texture2D os (Format RGBFloat),
-  fDepthTexture :: Texture2D os (Format Depth),
-
-  fEntities   :: [Entity os p],
-  fShowBounds :: Bool,
-
-  fInterface :: Interface os p
-}
-
-
--- |
-data Interface os p = Interface {
- fMinimap  :: Mesh os p,
- fMiniSize :: V2 Int
-}
-
-
--- |
-data ShaderData os p = ShaderData {
-  fPrimitiveArray :: PrimitiveArray p (B4 Float, B2 Float, B3 Float),
-  fRasterOptions  :: (Side, ViewPort, DepthRange),
-
-  fMatrixUniforms :: Buffer os (Uniform (M44 (B Float))),
-  fScalarUniforms :: Buffer os (Uniform (B  Float)),
-  fVectorUniforms :: Buffer os (Uniform (B3 Float)),
-
-  fTexture     :: Texture2D os (Format RGBFloat),
-  fFilterMode  :: SamplerFilter RGBFloat,
-  fEdgeMode    :: (EdgeMode2), --, BorderColor (Format RGBFloat)),
-
-
-  fMeshName     :: Maybe MeshName,
-  fSilhouettes  :: Image (Format RGBFloat),
-  fDepthTexture :: Image (Format Depth)
-}
-
-
-makeLensesWith abbreviatedFields ''Mesh
-makeLensesWith abbreviatedFields ''Entity
-
-makeLensesWith abbreviatedFields ''App
-makeLensesWith abbreviatedFields ''Interface
-makeLensesWith abbreviatedFields ''ShaderData
-
-
--- | Lens synonyms
-perspectiveOf :: Simple Traversal (App os p) (M44 Float)
-perspectiveOf = matrixValues.ix 1
-
-modelviewOf :: Simple Traversal (App os p) (M44 Float)
-modelviewOf = matrixValues.ix 0
+import qualified Viewer.Texture as Texture
 
 
 
 --------------------------------------------------------------------------------------------------------------------------------------------
--- Functions
+-- Definitions
 --------------------------------------------------------------------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------------------------------------------------------------------
 
 
 -- Textures --------------------------------------------------------------------------------------------------------------------------------
-
--- TODO: Don't hard-code pixel type
-
--- |
-pixel :: Juicy.ColorSpaceConvertible c Juicy.PixelRGB8 => [V3 Juicy.Pixel8] -> a -> b -> c -> [V3 Juicy.Pixel8]
-pixel xs _ _ pix = let Juicy.PixelRGB8 r g b = Juicy.convertPixel pix in V3 r g b : xs
-
-
--- |
--- saveTexture :: FilePath -> Texture2D os (HostFormat (BufferColor (Color a (ColorElement a)) a)) -> (a -> V3 Float) -> AppT os ()
-saveTexture :: FilePath -> Texture2D os (Format RGBFloat) -> (V3 Float -> V3 Float) -> AppT os ()
-saveTexture fn tex f = do
-  pixels <- readTexture2D tex 0 (V2 0 0) size (\ps c -> return $ convert (f c) ++ ps) []
-  liftIO $ Juicy.savePngImage fn (Juicy.ImageRGB8 $ image size pixels)
-  where
-    (size:_) = texture2DSizes tex
-    image (V2 dx dy) pixels = Juicy.Image { Juicy.imageWidth = dx, Juicy.imageHeight = dy, Juicy.imageData = VS.fromList pixels }
-    pixel8    = floor . (*255)
-    convert c = let (V3 r g b) = fmap pixel8 c in [r, g, b]
-
-
--- |
--- TODO: Clean this up
-loadTexture :: FilePath -> AppT os (Either String (Texture2D os (Format RGBFloat)))
-loadTexture fn = runEitherT $ do
-  (Juicy.ImageRGB8 image) <- EitherT (liftIO $ Juicy.readImage fn)
-  let size = V2 (Juicy.imageWidth image) (Juicy.imageHeight image)
-  tex <- EitherT . fmap Right $ textureFromPixels size (Juicy.pixelFold pixel [] image)
-  return tex
-
-
--- |
-newTexture :: V2 Int -> (Int -> Int -> V3 Juicy.Pixel8) -> AppT os (Texture2D os (Format RGBFloat))
-newTexture size@(V2 dx dy) f = textureFromPixels size [f x y | x <- [0..dx-1], y <- [0..dy-1]]
-
-
--- |
-pixelAt :: V2 Int -> Texture2D os (Format RGBFloat) -> ContextT GLFWWindow os (ContextFormat RGBFloat a) IO (V3 Float)
-pixelAt (V2 x y) tex = readTexture2D tex 0 (V2 x y) (V2 1 1) (\_ c -> return c) (V3 0 0 0)
-
-
--- |
--- TODO: Figure out order and format
--- TODO: Make polymorphic
-readPixels :: V2 Int -> V2 Int -> Texture2D os (Format RGBFloat) -> ContextT GLFWWindow os (ContextFormat RGBFloat a) IO [V3 Float]
-readPixels from size tex = readTexture2D tex 0 from size (\ps c -> return (c:ps)) []
-
-
--- |
--- TODO: Make sure the size is correct
-textureFromPixels :: V2 Int -> [V3 Juicy.Pixel8] -> AppT os (Texture2D os (Format RGBFloat))
-textureFromPixels size  pixels = do
-  -- TODO: What the hell is 'maxBound' doing here (?)
-  tex <- newTexture2D SRGB8 size maxBound -- JPG converts to SRGB
-  writeTexture2D tex 0 0 size pixels
-  generateTexture2DMipmap tex
-  return tex
-
-
--- | Creates a monochrome texture
-monochrome :: V2 Int -> V3 Juicy.Pixel8 -> AppT os (Texture2D os (Format RGBFloat))
-monochrome size@(V2 dx dy) colour = textureFromPixels size (replicate (dx*dy) colour)
 
 -- Meshes ----------------------------------------------------------------------------------------------------------------------------------
 
@@ -276,10 +118,8 @@ newOBJMesh name fn = runEitherT $ do
 newQuadXY :: MeshName -> V2 Int -> (V3 Float -> V2 Float) -> (V3 Float -> V3 Float) -> Texture2D os (Format RGBFloat) -> AppT os (Mesh os Triangles)
 newQuadXY name size texcoord colour tex = do
 
-  vertexBuffer :: Buffer os (B4 Float, B2 Float, B3 Float) <- newBuffer (length vertices)
+  vertexBuffer :: Buffer os VertexAttribute <- newBuffer (length vertices)
   writeBuffer vertexBuffer 0 vertices
-
-  liftIO $ mapM (print . (^._2)) vertices
 
   return $ Mesh { fVertices  = vertexBuffer,
                   fPrimitive = TriangleList,
@@ -287,7 +127,7 @@ newQuadXY name size texcoord colour tex = do
                   fMeshName  = Just name }
   where
     (V2 dx dy) = fmap fromIntegral size
-    makeVertex v = (to4D 1 v, texcoord v, colour v)
+    makeVertex v = (to4D 1 v, V3 0 0 1, texcoord v, colour v)
     vertices = map makeVertex (concat . triangles $ planeXY V3 dx dy)
 
 
@@ -304,7 +144,7 @@ newSpriteEntity name fns fps tr = runEitherT $ do
                     fBox       = wire,
                     fTick      = (\self _ -> nextFrame (drop 1 . cycle $ frames) self) }
   where
-    texcoord = fmap signum . (+ (V2 0.5 0.5)) . to2D
+    texcoord = fmap ((*0.5) . (+1) . signum) . to2D
     nextFrame frames self = self & mesh.texture .~ head frames
                                  & tick         .~ (\self _ -> nextFrame (drop 1 frames) self)
 
@@ -313,8 +153,8 @@ newSpriteEntity name fns fps tr = runEitherT $ do
 newOBJEntity :: MeshName -> FilePath -> M44 Float -> AppT os (Either String (Entity os Triangles))
 newOBJEntity name fn tr = runEitherT $ do
   model <- EitherT $ liftIO (Load.model fn)
-  mesh <- EitherT $ fromOBJModel name (takeDirectory fn) model
-  wire <- lift $ newWireframe (bounds model)
+  mesh  <- EitherT $ fromOBJModel name (takeDirectory fn) model
+  wire  <- lift $ newWireframe (bounds model)
   return $ Entity { fMesh      = mesh,
                     fBox       = wire,
                     fTransform = tr,
@@ -327,7 +167,7 @@ newWireframe box = do
   tex <- monochrome (V2 4 4) (V3 0 0 0) -- Black texture
   let ls = concatMap makeLine $ zipWith (\(fr,to) c -> (fr,to,c)) cuboidLineIndices colours
 
-  vertexBuffer :: Buffer os (B4 Float, B2 Float, B3 Float) <- newBuffer (length ls)
+  vertexBuffer :: Buffer os VertexAttribute <- newBuffer (length ls)
   writeBuffer vertexBuffer 0 ls
 
   return $ Mesh { fVertices  = vertexBuffer,
@@ -338,7 +178,7 @@ newWireframe box = do
     (V3 dx dy dz) = box^.size
     vs      = cuboid (\x y z -> (box^.corner) + (box^.size)*0.5 + V3 x y z) dx dy dz
     colours = concatMap (replicate 4) [V3 1 0 0, V3 0 0 1, V3 0 1 0] -- X is Red, Y is Blue, Z is Green
-    makeLine (fr,to,c) = [(to4D 1 $ vs !! fr, V2 0 0, c), (to4D 1 $ vs !! to, V2 0 0, c)]
+    makeLine (fr,to,c) = [(to4D 1 $ vs !! fr, V3 1 0 0,  V2 0 0, c), (to4D 1 $ vs !! to, V3 1 0 0, V2 0 0, c)]
 
 
 -- |
@@ -354,94 +194,29 @@ fromOBJModel name root model = runEitherT $ do
 
   lift $ do
     -- TODO: Deal with missing or leftover values
-    vertexBuffer :: Buffer os (B4 Float, B2 Float, B3 Float) <- newBuffer (length vs)
-    writeBuffer vertexBuffer 0 $ zipWith3 (makeVertex) (toList vs) (toList ts) (toList cs)
+    vertexBuffer :: Buffer os VertexAttribute <- newBuffer (length vs)
+    writeBuffer vertexBuffer 0 . toList $ V.zipWith4 (makeVertex) (vs) (ns) (ts) (cs)
 
     return $ Mesh { fVertices  = vertexBuffer,
                     fPrimitive = TriangleList,
                     fTexture   = tex,
                     fMeshName  = Just name }
   where
-    makeVertex v (V2 tx ty) (Colour r g b _) = (to4D 1 v, V2 (1-tx) ty, V3 r g b)
+    makeVertex v n (V2 tx ty) (Colour r g b _) = (to4D 1 v, n, V2 (1-tx) ty, V3 r g b)
 
     texpath = root </> "textures/"
     texname = listToMaybe . map T.unpack . toList . textures
 
     vIndex coords i  = coords !? (i-1)
+    nIndex coords mi = mi >>= \i -> coords !? (i-1)
     tIndex coords mi = fromMaybe (V2 0 0) $ mi >>= \i -> (coords !? (i-1))
+    
     (Just vs) = sequence $ fromFaceIndices (model^.vertices)  (vIndex) (^.ivertex)   (model^.faces)
+    (Just ns) = sequence $ fromFaceIndices (model^.normals)   (nIndex) (^.inormal)   (model^.faces)
     ts        =            fromFaceIndices (model^.texcoords) (tIndex) (^.itexcoord) (model^.faces)
     cs        = diffuseColours (model^.faces)
 
 -- Shaders ---------------------------------------------------------------------------------------------------------------------------------
-
--- |
-type UniformAt os f p a u = Shader os f (ShaderData os p) (UniformFormat (u) a)
-
-matrixUniform :: Int -> UniformAt os f a p (M44 (B Float))
-matrixUniform i = getUniform $ \sh -> (sh^.matrixUniforms, i)
-
-scalarUniform :: Int -> UniformAt os f a p (B Float)
-scalarUniform i = getUniform $ \sh -> (sh^.scalarUniforms, i)
-
-vectorUniform :: Int -> UniformAt os f a p (B3 Float)
-vectorUniform i = getUniform $ \sh -> (sh^.vectorUniforms, i)
-
-
--- |
--- TODO: Rename
-newShader :: Shader os (ContextFormat RGBFloat Depth) (ShaderData os p) (FragmentStream (ColorSample F RGBFloat, FFloat))
-newShader = do
-  primitiveStream <- toPrimitiveStream (^.primitiveArray)
-
-  -- TODO: Structured way of dealing with uniforms
-  [mv, pv, tr] <- mapM matrixUniform [0,1,2]
-
-  let primitiveStream2 = fmap (\(p, t, c) -> (pv !*! (mv !*! tr) !* p, (t, c))) primitiveStream
-
-  fragmentStream <- rasterize (^.rasterOptions) primitiveStream2
-
-  samp <- newSampler2D (\sh -> (sh^.texture, sh^.filterMode, (pure ClampToEdge, 0)))
-
-  let sampleTexture   = sample2D samp SampleAuto Nothing Nothing
-      fragmentStream2 = withRasterizedInfo (\ a (RasterizedInfo { rasterizedFragCoord = V4 _ _ z' _ }) -> (a, z')) fragmentStream
-      fragmentStream3 = fmap (\((p, c), d) -> (sampleTexture p + c, d)) fragmentStream2
-  return fragmentStream3
-
-
--- |
--- TODO: Use a different environment (cf. 'mapShader' and 'maybeShader')
-contourShader :: FragmentStream (ColorSample F RGBFloat, FFloat) -> Shader os (ContextFormat RGBFloat Depth) (ShaderData os p) ()
-contourShader fragmentStream = do
-  -- draw :: forall a os f s. (s -> Blending) -> FragmentStream a -> (a -> DrawColors os s ()) -> Shader os f s ()
-  -- TODO: Do we need to perform depth-testing (newShader should've taken care of that already)
-  -- draw (const NoBlending) fragmentStream $ \c -> do
-  colour <- vectorUniform 0 -- Identifying silhouette colour (meshName)
-  drawDepth (\sh -> (NoBlending, sh^.depthTexture, DepthOption Less True)) fragmentStream $ \c -> do
-    drawColor (\sh -> (sh^.silhouettes, pure True, False)) (colour)
-
-
--- | 
--- TODO: Rename (?)
--- TODO: Dealing with identifiers (simply use V3 colours?)
--- newCollisionShader :: Shader os (ContextFormat RGBFloat Depth) (ShaderData os p) ()
--- newCollisionShader = do
---   fragmentStream <- newShader
-
-
--- |
-newContextShader :: Shader os (ContextFormat RGBFloat Depth) (ShaderData os p) ()
-newContextShader = do
-  fragmentStream <- newShader
-  maybeShader (\sh -> if isJust (sh^.meshName) then Just sh else Nothing) (contourShader fragmentStream)
-  drawContextColorDepth (const (ContextColorOption NoBlending (pure True), DepthOption Less True)) fragmentStream
-
-
--- |
-newInterfaceShader :: Shader os (ContextFormat RGBFloat Depth) (ShaderData os p) ()
-newInterfaceShader = do
-  fragmentStream <- newShader
-  drawContextColor (const (ContextColorOption NoBlending (pure True))) (fmap fst fragmentStream)
 
 -- Bits and bobs ---------------------------------------------------------------------------------------------------------------------------
 
@@ -497,7 +272,7 @@ appTick dt app' = do
                  & entities      %~ map (\self -> (self^.tick) self dt)
 
   when (leftDown) $ do
-    which <- pixelAt (fmap floor mouse & y %~ (cy' -)) (app^.silhouettes)
+    (Just which) <- pixelAt (fmap floor mouse & y %~ (cy' -)) (app^.silhouettes)
     liftIO (print (nameThatMesh which) >> hFlush stdout)
 
   return app
@@ -515,7 +290,8 @@ loop (solid, wire, flat) dt app' = do
   app <- appTick dt app'
 
   render $ do
-    clearContextColor (V3 0.78 0.78 0.78)
+    clearContextColor (fmap (/255) $ V3 135 206 235) 
+
     clearContextDepth 1.0
 
     contours <- getTexture2DImage (app^.silhouettes)  0
@@ -571,7 +347,7 @@ loop (solid, wire, flat) dt app' = do
                           fRasterOptions  = app^.rasterOptions }
 
   let (V2 cx cy) = app^.windowSize
-      (V2 hx hy) = fmap fromIntegral (app^.interface.miniSize)
+      (V2 hx hy) = fmap ((*0.5) . fromIntegral) (app^.interface.miniSize)
 
   writeBuffer (app^.matrixUniforms) 0 ([identity, ortho 0 cx 0 cy 0 1, identity & translation .~ V3 (hx+10) (cy-hy-10) (-0.5)])
   writeBuffer (app^.scalarUniforms) 0 ([0,0,0])
@@ -631,11 +407,14 @@ main = do
     -- Entities and meshes
     let miniSize = V2 180 120
     mini <- newQuadXY (V3 0 0 0) (miniSize) (fmap ((*0.5) . (+1) . signum) . to2D) (const $ pure 0) contours
-
+    
+    liftIO (putStrLn "Minecraft")
     (Right minecraft) <- newOBJEntity (V3 1 0 0) (root </> "assets/models/minecraft1.obj")    (identity)
+    liftIO (putStrLn "Gourd")
     (Right gourd)     <- newOBJEntity (V3 0 1 0) (root </> "assets/models/extruded-text.obj") (mkTransformationMat
                                                                                                 (fromQuaternion $ axisAngle (V3 1 0 0) (π*0.5))
                                                                                                 (V3 0 8 0))
+    liftIO (putStrLn "Text")
     (Right text)      <- newOBJEntity (V3 0 0 1) (root </> "assets/models/frodo.obj")         (mkTransformationMat
                                                                                                 (fromQuaternion $ axisAngle (V3 1 0 0) (π*0.5))
                                                                                                 (V3 0 5 0))
@@ -661,4 +440,4 @@ main = do
                                                         perspective (60 * π/180) (1) 1 1000] }
     
     --
-    saveTexture "contours.png" (contours) (id)
+    Texture.save "contours.png" (contours) (id)
