@@ -24,7 +24,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeFamilies           #-}
 
 
@@ -39,16 +38,22 @@ module Viewer.Texture where
 --------------------------------------------------------------------------------------------------------------------------------------------
 -- We'll need these
 --------------------------------------------------------------------------------------------------------------------------------------------
-import Data.Foldable (toList)
+import           Data.Foldable (toList)
+import           Data.Maybe    (listToMaybe)
+import qualified Data.Vector.Storable as VS
 
 import qualified Codec.Picture       as Juicy
 import qualified Codec.Picture.Types as Juicy
 
-import           Graphics.GPipe
-import qualified Graphics.GPipe.Context.GLFW        as Context
-import           Graphics.GPipe.Context.GLFW.Unsafe (GLFWWindow (..))
+import Linear (V2(..), V3(..))
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Either
+import Control.Monad.IO.Class
 
-import Leibniz (deg, rad, π)
+import Graphics.GPipe
+import Graphics.GPipe.Context.GLFW.Unsafe (GLFWWindow (..))
+
+import Viewer.Types
 
 
 
@@ -82,13 +87,13 @@ load :: FilePath -> AppT os (Either String (Texture2D os (Format RGBFloat)))
 load fn = runEitherT $ do
   (Juicy.ImageRGB8 image) <- EitherT (liftIO $ Juicy.readImage fn)
   let size = V2 (Juicy.imageWidth image) (Juicy.imageHeight image)
-  tex <- lift $ textureFromPixels size (Juicy.pixelFold pixel [] image)
+  tex <- lift $ fromPixels size (Juicy.pixelFold pixel [] image)
   return tex
 
 
 -- |
 new :: V2 Int -> (Int -> Int -> V3 Juicy.Pixel8) -> AppT os (Texture2D os (Format RGBFloat))
-new size@(V2 dx dy) f = textureFromPixels size [f x y | x <- [0..dx-1], y <- [0..dy-1]]
+new size@(V2 dx dy) f = fromPixels size [f x y | x <- [0..dx-1], y <- [0..dy-1]]
 
 
 -- |
@@ -127,4 +132,4 @@ fromPixels size  pixels = do
 
 -- | Creates a monochrome texture
 monochrome :: V2 Int -> V3 Juicy.Pixel8 -> AppT os (Texture2D os (Format RGBFloat))
-monochrome size@(V2 dx dy) colour = textureFromPixels size (replicate (dx*dy) colour)
+monochrome size@(V2 dx dy) colour = fromPixels size (replicate (dx*dy) colour)

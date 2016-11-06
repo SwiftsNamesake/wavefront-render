@@ -32,8 +32,36 @@
 --------------------------------------------------------------------------------------------------------------------------------------------
 -- API
 --------------------------------------------------------------------------------------------------------------------------------------------
-module Main where
+module Viewer.Types (
+  fromMaybe, listToMaybe, isJust,
 
+  module Control.Lens,
+  module Graphics.GPipe,
+  module Cartesian.Core,
+  module Viewer.Types
+) where
+
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+-- We'll need these
+--------------------------------------------------------------------------------------------------------------------------------------------
+import Data.Set (Set)
+import Data.Maybe (fromMaybe, listToMaybe, isJust)
+
+import Control.Lens hiding (Level)
+
+import Graphics.GPipe
+import Graphics.GPipe.Context.GLFW.Unsafe (GLFWWindow (..))
+
+import Graphics.WaveFront
+
+import Cartesian.Core (BoundingBox(..))
+
+
+--------------------------------------------------------------------------------------------------------------------------------------------
+-- Definitions
+--------------------------------------------------------------------------------------------------------------------------------------------
 
 -- |
 type AppFormat = ContextFormat RGBFloat Depth
@@ -62,13 +90,14 @@ type VertexAttribute = (B4 Float, B3 Float, B2 Float, B3 Float)
 --        - Use GADT (?)
 data Component f s self =
   Animate   (s -> self -> self)               | -- ^ Can be animated
-  Paint     (s -> self -> Render ())          | -- ^ Can be rendered
+  -- Paint     (s -> self -> Render os s ())     | -- ^ Can be rendered
   Transform (M44 f)                           | -- ^ Has a position, orientation and scaling
   Bounds    (BoundingBox (V3 f))              | -- ^ Has a bounding box
   Listen    (self -> ())                      | -- ^ Emits a sound
   Collide   (self -> self -> Maybe Collision) | -- ^ Can collide with another entity
   Select    MeshName                          | -- ^ Can be selected
-  Skeleton  ()                                  -- ^ Has an animatable skeleton
+  Skeleton  ()                                | -- ^ Has an animatable skeleton
+  Mortality f                                   -- ^ Has health
 
 
 -- |
@@ -92,7 +121,7 @@ data Mesh os p = Mesh {
 
 -- |
 data Entity os p = Entity {
-  fComponents :: [EntityComponent os p]
+  fComponents :: Set (EntityComponent os p)
 }
 
 -- fMesh      :: Mesh os p,
@@ -103,24 +132,26 @@ data Entity os p = Entity {
 
 -- |
 data App os p = App {
-  fMatrixUniforms :: Buffer os (Uniform (M44 (B Float))),
-  fScalarUniforms :: Buffer os (Uniform (B  Float)),
-  fVectorUniforms :: Buffer os (Uniform (B3 Float)),
-  
-  fRasterOptions  :: (Side, ViewPort, DepthRange),
-  fWindowSize     :: V2 Float,
+  fRasterOptions :: (Side, ViewPort, DepthRange),
+  fWindowSize    :: V2 Float,
 
-  fMatrixValues   :: [M44 Float],
-  fVectorValues   :: [V3 Float],
-  fScalarValues   :: [Float],
+  fUniformBuffers :: UniformData os,
+  fUniformValues  :: UniformValues Float,
 
-  fSilhouettes  :: Texture2D os (Format RGBFloat),
-  fDepthTexture :: Texture2D os (Format Depth),
+  fSelection :: SelectionData,
 
   fEntities   :: [Entity os p],
   fShowBounds :: Bool,
 
   fInterface :: Interface os p
+}
+
+
+-- |
+data UniformValues f = UniformValues {
+  fMatrices :: [M44 f],
+  fVectors  :: [V3 f],
+  fScalars  :: [f]
 }
 
 
@@ -136,34 +167,64 @@ data ShaderData os p = ShaderData {
   fPrimitiveArray :: PrimitiveArray p VertexAttribute,
   fRasterOptions  :: (Side, ViewPort, DepthRange),
 
-  fMatrixUniforms :: Buffer os (Uniform (M44 (B Float))),
-  fScalarUniforms :: Buffer os (Uniform (B  Float)),
-  fVectorUniforms :: Buffer os (Uniform (B3 Float)),
+  fSelection :: SelectionData,
 
+  fUniforms :: UniformData os,
+  fTexture  :: TextureData os
+}
+
+
+-- |
+data TextureData os = TextureData {
   fTexture     :: Texture2D os (Format RGBFloat),
   fFilterMode  :: SamplerFilter RGBFloat,
   fEdgeMode    :: (EdgeMode2), --, BorderColor (Format RGBFloat)),
+  fBlend       :: (V3 Float -> V3 Float -> V3 Float) -- blend = (+)
+}
 
 
+-- |
+data SelectionData = SelectionData {
   fMeshName     :: Maybe MeshName,
   fSilhouettes  :: Image (Format RGBFloat),
   fDepthTexture :: Image (Format Depth)
 }
 
 
+-- | I love the word 'shadow'. Who knows why.
+data ShadowData = ShadowData {
+  
+}
+
+
+-- |
+data UniformData os = UniformData {
+  fMatrices :: Buffer os (Uniform (M44 (B Float))),
+  fScalars  :: Buffer os (Uniform (B  Float)),
+  fVectors  :: Buffer os (Uniform (B3 Float))
+}
+
+
+-- | Auto-generated lenses
 makeLensesWith abbreviatedFields ''Mesh
 makeLensesWith abbreviatedFields ''Entity
 
+makeLensesWith abbreviatedFields ''TextureData
+makeLensesWith abbreviatedFields ''SelectionData
+makeLensesWith abbreviatedFields ''ShadowData
+makeLensesWith abbreviatedFields ''UniformData
+
 makeLensesWith abbreviatedFields ''App
+makeLensesWith abbreviatedFields ''UniformValues
 makeLensesWith abbreviatedFields ''Interface
 makeLensesWith abbreviatedFields ''ShaderData
 
 
 -- | Lens synonyms
 perspectiveOf :: Simple Traversal (App os p) (M44 Float)
-perspectiveOf = matrixValues.ix 1
+perspectiveOf = uniformValues.matrices.ix 1
 
 modelviewOf :: Simple Traversal (App os p) (M44 Float)
-modelviewOf = matrixValues.ix 0
+modelviewOf = uniformValues.matrices.ix 0
 
 

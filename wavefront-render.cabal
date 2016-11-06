@@ -30,7 +30,12 @@ library
 
 
 executable Viewer
-  hs-source-dirs:      app
+  hs-source-dirs:      app, app/src
+  -- exposed-modules: 
+  other-modules:       Viewer.Types
+                     , Viewer.Texture
+                     , Viewer.Shader
+
   main-is:             Viewer.hs
   ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base

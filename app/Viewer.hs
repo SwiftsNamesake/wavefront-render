@@ -24,7 +24,6 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
 {-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TemplateHaskell        #-}
 {-# LANGUAGE TypeFamilies           #-}
 
 
@@ -45,9 +44,6 @@ import           Data.Maybe    (fromMaybe, listToMaybe, isJust)
 import           Data.Monoid
 import           Data.Text   (Text)
 import qualified Data.Text   as T
-import           Data.Vector (Vector, (!), (!?))
-import qualified Data.Vector as V
-import qualified Data.Vector.Storable as VS
 import qualified Data.Set as S
 import           Data.Set (Set)
 
@@ -81,10 +77,12 @@ import Cartesian.Core as C (BoundingBox (..), corner, size, x, y, z)
 
 import Geometry.Sculptor.Shapes hiding (Face)
 
-import           Graphics.WaveFront
+import           Graphics.WaveFront 
 import qualified Graphics.WaveFront.Load            as Load
 
+import           Viewer.Types
 import qualified Viewer.Texture as Texture
+import qualified Viewer.Shader  as Shader
 
 
 
@@ -314,37 +312,33 @@ loop (solid, wire, flat) dt app' = do
       contours <- getTexture2DImage (app^.silhouettes)  0
       depths   <- getTexture2DImage (app^.depthTexture) 0 -- TODO: Get rid of this (?)
 
-      solid $ ShaderData { fPrimitiveArray = toPrimitiveArray (e^.mesh.primitive) vertexArray,
-                           fMatrixUniforms = app^.matrixUniforms,
-                           fScalarUniforms = app^.scalarUniforms,
-                           fVectorUniforms = app^.vectorUniforms,
+      solid $ ShaderData { fPrimitiveArray = toPrimitiveArray (e^.mesh.primitive) boundsArray,
+                           fUniforms       = app^.uniformBuffers,
+                           fRasterOptions  = app^.rasterOptions,
 
-                           fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
-                           fEdgeMode   = (pure ClampToEdge), --, pure 1),
+                           fTexture = TextureData {
+                             fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
+                             fEdgeMode   = (pure ClampToEdge), --, pure 1),
+                             fTexture = e^.mesh.texture },
 
-                           fMeshName = e^.mesh.meshName,
-                           fSilhouettes   = contours,
-                           fDepthTexture  = depths,
-
-                           fTexture = e^.mesh.texture,
-
-                           fRasterOptions  = app^.rasterOptions }
+                           fSelection = SelectionData {
+                             fMeshName = e^.mesh.meshName,
+                             fSilhouettes   = contours,
+                             fDepthTexture  = depths } }
       
       wire $ ShaderData { fPrimitiveArray = toPrimitiveArray (e^.box.primitive) boundsArray,
-                          fMatrixUniforms = app^.matrixUniforms,
-                          fScalarUniforms = app^.scalarUniforms,
-                          fVectorUniforms = app^.vectorUniforms,
+                          fUniforms = app^.uniformBuffers,
+                          fRasterOptions  = app^.rasterOptions,
 
-                          fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
-                          fEdgeMode   = (pure ClampToEdge), --, pure 1),
+                          fTexture = TextureData {
+                            fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
+                            fEdgeMode   = (pure ClampToEdge), --, pure 1),
+                            fTexture = e^.box.texture },
 
-                          fMeshName = e^.box.meshName,
-                          fSilhouettes   = contours,
-                          fDepthTexture  = depths,
-
-                          fTexture = e^.box.texture,
-
-                          fRasterOptions  = app^.rasterOptions }
+                          fSelection = SelectionData {
+                            fMeshName = e^.box.meshName,
+                            fSilhouettes   = contours,
+                            fDepthTexture  = depths } }
 
   let (V2 cx cy) = app^.windowSize
       (V2 hx hy) = fmap ((*0.5) . fromIntegral) (app^.interface.miniSize)
@@ -358,21 +352,15 @@ loop (solid, wire, flat) dt app' = do
     vertexArray <- newVertexArray (mini^.vertices)
 
     flat $ ShaderData { fPrimitiveArray = toPrimitiveArray (mini^.primitive) vertexArray,
-                        fMatrixUniforms = app^.matrixUniforms,
-                        fScalarUniforms = app^.scalarUniforms,
-                        fVectorUniforms = app^.vectorUniforms,
+                        fUniforms = app^.uniformBuffers,
+                        fRasterOptions  = app^.rasterOptions,
 
-                        fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
-                        fEdgeMode   = (pure ClampToEdge), --, pure 1),
-
-                        fMeshName = mini^.meshName,
+                        fTexture = Texture2D { fFilterMode = SamplerFilter Linear Linear Linear (Just 4),
+                                               fEdgeMode   = (pure ClampToEdge), --, pure 1),
+                                               fMeshName   = mini^.meshName,
+                                               fTexture    = mini^.texture } }
                          --fSilhouettes   = contours,
                          --fDepthTexture  = depths,
-
-                        fTexture = mini^.texture,
-
-                        fRasterOptions  = app^.rasterOptions }
-
     pass
   swapContextBuffers
 
@@ -393,9 +381,9 @@ main = do
     
     -- Uniform buffers
     -- This is so frail
-    scalars  :: Buffer os (Uniform (B Float))       <- newBuffer 3
-    matrices :: Buffer os (Uniform (M44 (B Float))) <- newBuffer 3
-    vectors  :: Buffer os (Uniform (B3 Float))      <- newBuffer 3
+    scalars'  :: Buffer os (Uniform (B Float))       <- newBuffer 3
+    matrices' :: Buffer os (Uniform (M44 (B Float))) <- newBuffer 3
+    vectors'  :: Buffer os (Uniform (B3 Float))      <- newBuffer 3
     
     -- Contour textures
     -- TODO: Deal with resizes
@@ -420,24 +408,23 @@ main = do
                                                                                                 (V3 0 5 0))
     
     -- TODO: How do you use the same shader for different topologies?
-    solid <- compileShader newContextShader
-    wire  <- compileShader newContextShader
-    flat  <- compileShader newInterfaceShader
+    solid <- compileShader Shader.context
+    wire  <- compileShader Shader.context
+    flat  <- compileShader Shader.interface
 
     loop (solid, wire, flat) 0 $ App { fRasterOptions  = (FrontAndBack, ViewPort (V2 0 0) (V2 720 480), DepthRange 0 50),
                                        fWindowSize     = (V2 720 480),
-                                       fScalarUniforms = scalars,
-                                       fMatrixUniforms = matrices,
-                                       fVectorUniforms = vectors,
+                                       fUniforms      = UniformData   { fScalars = scalars', fMatrices = matrices', fVectors = vectors' }
+                                       fUniformValues = UniformValues { fScalars = [0,0,0], fMatrices =
+                                                                                              [mkTransformationMat
+                                                                                                 (fromQuaternion $ axisAngle (V3 1 0 0) (0)) (V3 0 0 0),
+                                                                                               perspective (60 * π/180) (1) 1 1000] }
                                        fEntities  = [text, minecraft, gourd],
                                        fInterface = Interface { fMinimap = mini, fMiniSize = miniSize },
-                                       fScalarValues = [0,0,0],
                                        fShowBounds   = True,
                                        fSilhouettes  = contours,
                                        fDepthTexture = depths,
                                        fVectorValues = [],
-                                       fMatrixValues = [mkTransformationMat (fromQuaternion $ axisAngle (V3 1 0 0) (0)) (V3 0 0 0),
-                                                        perspective (60 * π/180) (1) 1 1000] }
     
     --
     Texture.save "contours.png" (contours) (id)

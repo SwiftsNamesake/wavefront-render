@@ -1,3 +1,4 @@
+import Control.Lens
 
 :set prompt  "> "
 :set prompt2 "| "
