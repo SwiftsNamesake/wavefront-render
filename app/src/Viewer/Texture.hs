@@ -54,6 +54,7 @@ import Graphics.GPipe
 import Graphics.GPipe.Context.GLFW.Unsafe (GLFWWindow (..))
 
 import Viewer.Types
+import Viewer.Trinkets
 
 
 

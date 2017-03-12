@@ -30,14 +30,23 @@ library
 
 
 executable Viewer
+  main-is:             Viewer.hs
   hs-source-dirs:      app, app/src
+
+  default-extensions:  DuplicateRecordFields
+                     , FunctionalDependencies
+                     , MultiParamTypeClasses
+                     , ScopedTypeVariables
+
   -- exposed-modules: 
   other-modules:       Viewer.Types
                      , Viewer.Texture
                      , Viewer.Shader
+                     , Viewer.Entity
+                     , Viewer.Mesh
+                     , Viewer.Trinkets
 
-  main-is:             Viewer.hs
-  ghc-options:         -Wall -threaded -rtsopts -with-rtsopts=-N
+  ghc-options:         -w -threaded -rtsopts -with-rtsopts=-N, -ddump-splices
   build-depends:       base
                      , text
                      , either
